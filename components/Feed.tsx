@@ -1,280 +1,274 @@
 import React, { useState, useEffect } from 'react'
-import { supabase } from '../utils/supabase'
+import { Heart, MessageCircle, Share2, Bookmark, TrendingUp, TrendingDown, Play } from 'lucide-react'
 import Stories from './Stories'
 
 interface FeedProps {
   currentUser: any
 }
 
-export default function Feed({ currentUser }: FeedProps) {
-  const [posts, setPosts] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [likedPosts, setLikedPosts] = useState<Set<string>>(new Set())
+function timeAgo(dateStr: string) {
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const m = Math.floor(diff / 60000)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  return `${Math.floor(h / 24)}d ago`
+}
 
-  const fetchPosts = async () => {
-    setLoading(true)
-    const { data, error } = await supabase
-      .from('posts')
-      .select('*')
-      .neq('post_type', 'story')   // stories live in the stories bar
-      .order('created_at', { ascending: false })
-      .limit(50)
+function isYouTube(url: string) {
+  return url.includes('youtube.com') || url.includes('youtu.be')
+}
 
-    if (!error && data) setPosts(data)
-    setLoading(false)
+function getYouTubeEmbed(url: string) {
+  let id = ''
+  if (url.includes('youtu.be/')) id = url.split('youtu.be/')[1]?.split('?')[0]
+  else if (url.includes('v=')) id = url.split('v=')[1]?.split('&')[0]
+  return id ? `https://www.youtube.com/embed/${id}` : url
+}
+
+function VideoPlayer({ url }: { url: string }) {
+  if (isYouTube(url)) {
+    return (
+      <iframe src={getYouTubeEmbed(url)} style={{ width: '100%', height: '220px', border: 'none', borderRadius: '12px' }}
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+    )
   }
-
-  useEffect(() => {
-    fetchPosts()
-
-    const channel = supabase
-      .channel('posts-feed')
-      .on('postgres_changes', {
-        event: 'INSERT', schema: 'public', table: 'posts'
-      }, payload => {
-        const newPost = payload.new as any
-        if (newPost.post_type !== 'story') {
-          setPosts(prev => [newPost, ...prev])
-        }
-      })
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
-  }, [])
-
-  const handleLike = async (post: any) => {
-    const isLiked = likedPosts.has(post.id)
-    const newLikes = isLiked ? Math.max(0, post.likes - 1) : post.likes + 1
-
-    setLikedPosts(prev => {
-      const next = new Set(prev)
-      isLiked ? next.delete(post.id) : next.add(post.id)
-      return next
-    })
-    setPosts(prev => prev.map(p => p.id === post.id ? { ...p, likes: newLikes } : p))
-    await supabase.from('posts').update({ likes: newLikes }).eq('id', post.id)
-  }
-
-  const formatTime = (ts: string) => {
-    const diff = Date.now() - new Date(ts).getTime()
-    const mins = Math.floor(diff / 60000)
-    if (mins < 1) return 'just now'
-    if (mins < 60) return `${mins}m`
-    const hrs = Math.floor(mins / 60)
-    if (hrs < 24) return `${hrs}h`
-    return `${Math.floor(hrs / 24)}d`
-  }
-
-  const getYouTubeEmbed = (url: string) => {
-    const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/)
-    return match ? `https://www.youtube.com/embed/${match[1]}` : null
-  }
-
   return (
-    <div style={{ paddingBottom: '20px' }}>
-      {/* Header */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '16px 16px 8px',
-        background: 'linear-gradient(180deg, #0f0f1a 0%, transparent 100%)',
-        position: 'sticky', top: 0, zIndex: 10
-      }}>
-        <h1 style={{ color: '#fff', fontSize: '26px', fontWeight: '800', margin: 0 }}>
-          Socio<span style={{
-            background: 'linear-gradient(135deg,#667eea,#764ba2)',
-            WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent'
-          }}>Trade</span>
-        </h1>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button onClick={fetchPosts} style={{
-            background: 'rgba(255,255,255,0.08)', border: 'none',
-            borderRadius: '50%', width: '36px', height: '36px',
-            color: '#fff', fontSize: '16px', cursor: 'pointer'
-          }}>🔄</button>
-        </div>
-      </div>
-
-      {/* Stories */}
-      <Stories currentUser={currentUser} />
-
-      {/* Posts */}
-      {loading ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'rgba(255,255,255,0.5)' }}>
-          <div style={{ fontSize: '32px', marginBottom: '12px' }}>⏳</div>
-          Loading posts...
-        </div>
-      ) : posts.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px' }}>
-          <div style={{ fontSize: '48px', marginBottom: '16px' }}>📝</div>
-          <div style={{ color: '#fff', fontSize: '18px', fontWeight: '700' }}>No posts yet</div>
-          <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '14px', marginTop: '8px' }}>Tap + to create the first post!</div>
-        </div>
-      ) : (
-        posts.map(post => <PostCard key={post.id} post={post} liked={likedPosts.has(post.id)} onLike={handleLike} formatTime={formatTime} getYouTubeEmbed={getYouTubeEmbed} currentUser={currentUser} />)
-      )}
-    </div>
+    <video controls src={url} style={{ width: '100%', maxHeight: '280px', borderRadius: '12px', objectFit: 'cover' }}>
+      <source src={url} />
+    </video>
   )
 }
 
-function PostCard({ post, liked, onLike, formatTime, getYouTubeEmbed, currentUser }: any) {
-  const isReel = post.post_type === 'reel'
+function PostCard({ post, onLike }: { post: any; onLike: (id: string) => void }) {
+  const [liked, setLiked] = useState(post.liked || false)
+  const [likeCount, setLikeCount] = useState(post.likes || 0)
+  const [saved, setSaved] = useState(false)
+
+  const handleLike = () => {
+    const newLiked = !liked
+    setLiked(newLiked)
+    setLikeCount((c: number) => newLiked ? c + 1 : c - 1)
+    onLike(post.id)
+  }
+
   const isSignal = post.post_type === 'signal'
-  const ytEmbed = post.video_url ? getYouTubeEmbed(post.video_url) : null
-  const isMp4 = post.video_url && post.video_url.endsWith('.mp4')
+  const isReel = post.post_type === 'reel'
 
   return (
     <div style={{
-      background: isReel ? 'rgba(255,149,0,0.03)' : isSignal ? 'rgba(48,209,88,0.03)' : 'rgba(255,255,255,0.02)',
-      borderBottom: '1px solid rgba(255,255,255,0.06)',
-      marginBottom: '2px'
+      background: 'rgba(255,255,255,0.04)',
+      border: '1px solid rgba(255,255,255,0.07)',
+      borderRadius: '16px', marginBottom: '12px', overflow: 'hidden'
     }}>
-      {/* Post header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '14px 16px 10px' }}>
-        <img
-          src={post.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.user_id}`}
-          style={{ width: '42px', height: '42px', borderRadius: '50%', border: '2px solid #667eea', objectFit: 'cover', background: '#333' }}
-          alt=""
-        />
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', padding: '14px 16px 10px', gap: '10px' }}>
+        <img src={post.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.username}`}
+          alt="" style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover',
+            border: '2px solid rgba(102,126,234,0.4)' }} />
         <div style={{ flex: 1 }}>
-          <div style={{ color: '#fff', fontWeight: '700', fontSize: '14px' }}>{post.full_name}</div>
-          <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: '12px' }}>@{post.username} · {formatTime(post.created_at)}</div>
+          <div style={{ color: '#fff', fontWeight: '600', fontSize: '14px' }}>{post.full_name || post.username}</div>
+          <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '12px' }}>
+            @{post.username} · {timeAgo(post.created_at)}
+            {isReel && <span style={{ marginLeft: '6px', color: '#a78bfa' }}>🎬 Reel</span>}
+          </div>
         </div>
         {isSignal && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-            <span style={{ background: 'rgba(48,209,88,0.15)', color: '#30d158', fontSize: '11px', fontWeight: '800', padding: '4px 10px', borderRadius: '20px', border: '1px solid rgba(48,209,88,0.3)' }}>📊 SIGNAL</span>
-            {post.signal_direction && (
-              <span style={{
-                fontSize: '11px', fontWeight: '800', padding: '2px 8px', borderRadius: '12px',
-                background: post.signal_direction === 'LONG' ? 'rgba(48,209,88,0.15)' : 'rgba(255,59,48,0.15)',
-                color: post.signal_direction === 'LONG' ? '#30d158' : '#ff3b30'
-              }}>
-                {post.signal_direction === 'LONG' ? '📈' : '📉'} {post.signal_direction}
-              </span>
-            )}
-          </div>
-        )}
-        {isReel && (
-          <span style={{ background: 'rgba(255,149,0,0.15)', color: '#ff9500', fontSize: '11px', fontWeight: '800', padding: '4px 10px', borderRadius: '20px' }}>🎬 REEL</span>
+          <span style={{
+            padding: '4px 10px',
+            background: post.signal_direction === 'LONG' ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)',
+            border: `1px solid ${post.signal_direction === 'LONG' ? '#22c55e' : '#ef4444'}`,
+            borderRadius: '20px',
+            color: post.signal_direction === 'LONG' ? '#22c55e' : '#ef4444',
+            fontSize: '11px', fontWeight: '700'
+          }}>
+            {post.signal_direction === 'LONG' ? '▲' : '▼'} {post.signal_direction}
+          </span>
         )}
       </div>
 
-      {/* Signal card */}
-      {isSignal && post.ticker && (
-        <div style={{
-          margin: '0 16px 12px',
-          background: 'linear-gradient(135deg, rgba(48,209,88,0.1), rgba(48,209,88,0.05))',
-          borderRadius: '16px', padding: '14px',
-          border: '1px solid rgba(48,209,88,0.2)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-            <span style={{ color: '#30d158', fontSize: '22px', fontWeight: '900' }}>${post.ticker}</span>
-            {post.confidence && (
-              <span style={{
-                background: 'rgba(48,209,88,0.2)', color: '#30d158',
-                fontSize: '12px', fontWeight: '700',
-                padding: '3px 10px', borderRadius: '20px'
-              }}>💪 {post.confidence}% confidence</span>
-            )}
+      {/* Signal Card */}
+      {isSignal && (
+        <div style={{ margin: '0 16px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: '12px', overflow: 'hidden' }}>
+          <div style={{
+            padding: '12px 16px',
+            background: post.signal_direction === 'LONG' ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+            borderBottom: '1px solid rgba(255,255,255,0.06)'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {post.signal_direction === 'LONG'
+                ? <TrendingUp size={20} color="#22c55e" />
+                : <TrendingDown size={20} color="#ef4444" />}
+              <span style={{ color: '#fff', fontSize: '20px', fontWeight: '800' }}>{post.ticker}</span>
+              {post.confidence && (
+                <span style={{ marginLeft: 'auto', color: '#f59e0b', fontSize: '12px', fontWeight: '600' }}>
+                  {post.confidence}% confidence
+                </span>
+              )}
+            </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-            {post.entry_price && (
-              <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
-                <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '10px' }}>ENTRY</div>
-                <div style={{ color: '#fff', fontSize: '14px', fontWeight: '700' }}>${post.entry_price}</div>
-              </div>
-            )}
-            {post.target_price && (
-              <div style={{ background: 'rgba(48,209,88,0.1)', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
-                <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '10px' }}>TARGET</div>
-                <div style={{ color: '#30d158', fontSize: '14px', fontWeight: '700' }}>${post.target_price}</div>
-              </div>
-            )}
-            {post.stop_loss && (
-              <div style={{ background: 'rgba(255,59,48,0.1)', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
-                <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '10px' }}>STOP</div>
-                <div style={{ color: '#ff3b30', fontSize: '14px', fontWeight: '700' }}>${post.stop_loss}</div>
-              </div>
-            )}
-          </div>
+          {(post.entry_price || post.target_price || post.stop_loss) && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '12px 16px', gap: '8px' }}>
+              {[
+                { label: 'Entry', val: post.entry_price, color: '#fff' },
+                { label: 'Target', val: post.target_price, color: '#22c55e' },
+                { label: 'Stop', val: post.stop_loss, color: '#ef4444' },
+              ].map(f => f.val ? (
+                <div key={f.label} style={{ textAlign: 'center' }}>
+                  <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '10px', fontWeight: '600', marginBottom: '3px' }}>{f.label}</div>
+                  <div style={{ color: f.color, fontSize: '13px', fontWeight: '700' }}>{f.val}</div>
+                </div>
+              ) : null)}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Content text */}
+      {/* Content */}
       {post.content && (
-        <p style={{ color: 'rgba(255,255,255,0.88)', fontSize: '15px', lineHeight: '1.5', margin: '0 16px 12px', whiteSpace: 'pre-wrap' }}>
+        <p style={{ color: 'rgba(255,255,255,0.85)', fontSize: '14px', lineHeight: '1.5', padding: '0 16px 10px', margin: 0 }}>
           {post.content}
         </p>
       )}
 
-      {/* Video embed (YouTube) */}
-      {ytEmbed && (
-        <div style={{ margin: '0 16px 12px', borderRadius: '14px', overflow: 'hidden', aspectRatio: '16/9' }}>
-          <iframe
-            src={ytEmbed}
-            style={{ width: '100%', height: '100%', border: 'none' }}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-          />
-        </div>
-      )}
-
-      {/* MP4 video */}
-      {isMp4 && (
-        <div style={{ margin: '0 16px 12px', borderRadius: '14px', overflow: 'hidden' }}>
-          <video src={post.video_url} controls style={{ width: '100%', borderRadius: '14px', maxHeight: '360px' }} />
-        </div>
-      )}
-
-      {/* Video URL (non-YouTube/mp4) */}
-      {post.video_url && !ytEmbed && !isMp4 && (
-        <a href={post.video_url} target="_blank" rel="noopener noreferrer" style={{
-          display: 'flex', alignItems: 'center', gap: '10px',
-          margin: '0 16px 12px',
-          background: 'rgba(255,149,0,0.1)', border: '1px solid rgba(255,149,0,0.2)',
-          borderRadius: '12px', padding: '12px 14px',
-          color: '#ff9500', textDecoration: 'none', fontWeight: '600', fontSize: '14px'
-        }}>
-          🎬 Watch Reel ↗
-        </a>
-      )}
-
       {/* Image */}
       {post.image_url && (
-        <div style={{ margin: '0 0 12px' }}>
-          <img src={post.image_url} alt="" style={{ width: '100%', maxHeight: '380px', objectFit: 'cover' }} />
+        <img src={post.image_url} alt=""
+          style={{ width: '100%', maxHeight: '300px', objectFit: 'cover', display: 'block' }}
+          onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+      )}
+
+      {/* Video */}
+      {post.video_url && (
+        <div style={{ padding: '0 0 10px' }}>
+          <VideoPlayer url={post.video_url} />
         </div>
       )}
 
       {/* Actions */}
-      <div style={{ display: 'flex', gap: '4px', padding: '8px 16px 14px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-        <button onClick={() => onLike(post)} style={{
-          background: liked ? 'rgba(255,59,48,0.1)' : 'none',
-          border: 'none', cursor: 'pointer',
-          color: liked ? '#ff3b30' : 'rgba(255,255,255,0.5)',
-          fontSize: '13px', fontWeight: '700',
-          display: 'flex', alignItems: 'center', gap: '5px',
-          padding: '7px 12px', borderRadius: '20px',
-          transition: 'all 0.2s'
-        }}>
-          {liked ? '❤️' : '🤍'} {post.likes}
+      <div style={{ display: 'flex', alignItems: 'center', padding: '10px 16px 14px', gap: '18px' }}>
+        <button onClick={handleLike} style={{ background: 'none', border: 'none', display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', padding: 0 }}>
+          <Heart size={20} color={liked ? '#ef4444' : 'rgba(255,255,255,0.5)'} fill={liked ? '#ef4444' : 'none'} />
+          <span style={{ color: liked ? '#ef4444' : 'rgba(255,255,255,0.5)', fontSize: '13px' }}>{likeCount}</span>
         </button>
-        <button style={{
-          background: 'none', border: 'none', cursor: 'pointer',
-          color: 'rgba(255,255,255,0.5)', fontSize: '13px', fontWeight: '700',
-          display: 'flex', alignItems: 'center', gap: '5px',
-          padding: '7px 12px', borderRadius: '20px'
-        }}>
-          💬 {post.comments}
+        <button style={{ background: 'none', border: 'none', display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', padding: 0 }}>
+          <MessageCircle size={20} color="rgba(255,255,255,0.5)" />
+          <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '13px' }}>{post.comments || 0}</span>
         </button>
-        <button style={{
-          background: 'none', border: 'none', cursor: 'pointer',
-          color: 'rgba(255,255,255,0.5)', fontSize: '13px', fontWeight: '700',
-          display: 'flex', alignItems: 'center', gap: '5px',
-          padding: '7px 12px', borderRadius: '20px',
-          marginLeft: 'auto'
-        }}>
-          🔁 Share
+        <button style={{ background: 'none', border: 'none', display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', padding: 0 }}>
+          <Share2 size={20} color="rgba(255,255,255,0.5)" />
         </button>
+        <button onClick={() => setSaved(s => !s)} style={{ background: 'none', border: 'none', marginLeft: 'auto', cursor: 'pointer', padding: 0 }}>
+          <Bookmark size={20} color={saved ? '#667eea' : 'rgba(255,255,255,0.5)'} fill={saved ? '#667eea' : 'none'} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export default function Feed({ currentUser }: FeedProps) {
+  const [posts, setPosts] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const loadPosts = async () => {
+    // Load from localStorage first
+    const local: any[] = JSON.parse(localStorage.getItem('st_posts') || '[]')
+
+    // Try Supabase
+    try {
+      const { supabase } = await import('../utils/supabase')
+      const { data, error } = await supabase
+        .from('posts')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50)
+
+      if (!error && data && data.length > 0) {
+        // Merge: show Supabase posts + any local posts not in Supabase
+        const supabaseIds = new Set(data.map((p: any) => p.id))
+        const localOnly = local.filter((p: any) => !supabaseIds.has(p.id))
+        const merged = [...localOnly, ...data].sort((a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )
+        setPosts(merged)
+        setLoading(false)
+        return
+      }
+    } catch {}
+
+    // Fallback to localStorage only
+    setPosts(local)
+    setLoading(false)
+  }
+
+  useEffect(() => {
+    loadPosts()
+    // Refresh every 30 seconds
+    const interval = setInterval(loadPosts, 30000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const handleLike = (postId: string) => {
+    // Update localStorage
+    const posts: any[] = JSON.parse(localStorage.getItem('st_posts') || '[]')
+    const updated = posts.map((p: any) => {
+      if (p.id === postId) {
+        const newLiked = !p.liked
+        return { ...p, liked: newLiked, likes: newLiked ? (p.likes || 0) + 1 : Math.max((p.likes || 0) - 1, 0) }
+      }
+      return p
+    })
+    localStorage.setItem('st_posts', JSON.stringify(updated))
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#0f0f1a' }}>
+      {/* Header */}
+      <div style={{
+        padding: '16px 16px 8px',
+        background: 'rgba(15,15,26,0.95)',
+        position: 'sticky', top: 0, zIndex: 10,
+        backdropFilter: 'blur(20px)',
+        borderBottom: '1px solid rgba(255,255,255,0.05)'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <h1 style={{ color: '#fff', fontSize: '22px', fontWeight: '800', margin: 0 }}>
+            📈 SocioTrade
+          </h1>
+          <button onClick={loadPosts} style={{
+            background: 'rgba(102,126,234,0.2)', border: '1px solid rgba(102,126,234,0.3)',
+            borderRadius: '20px', padding: '6px 14px', color: '#667eea',
+            fontSize: '12px', fontWeight: '600', cursor: 'pointer'
+          }}>Refresh</button>
+        </div>
+        <Stories currentUser={currentUser} />
+      </div>
+
+      {/* Posts */}
+      <div style={{ padding: '12px 12px 20px' }}>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+            <div style={{ fontSize: '40px', marginBottom: '12px' }}>⏳</div>
+            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '14px' }}>Loading feed...</p>
+          </div>
+        ) : posts.length === 0 ? (
+          <div style={{
+            textAlign: 'center', padding: '60px 20px',
+            background: 'rgba(255,255,255,0.03)', borderRadius: '20px',
+            border: '1px dashed rgba(255,255,255,0.1)', marginTop: '20px'
+          }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📝</div>
+            <h3 style={{ color: '#fff', fontSize: '18px', fontWeight: '700', margin: '0 0 8px' }}>No posts yet</h3>
+            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '14px', margin: 0 }}>
+              Be the first to share a post, reel, or trade signal!
+            </p>
+          </div>
+        ) : (
+          posts.map(post => (
+            <PostCard key={post.id} post={post} onLike={handleLike} />
+          ))
+        )}
       </div>
     </div>
   )
