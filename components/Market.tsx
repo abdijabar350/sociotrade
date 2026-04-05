@@ -39,8 +39,8 @@ async function fetchLivePrices(assets: MarketAsset[]): Promise<Partial<Record<st
   const ids = cryptoAssets.map(a => COINGECKO_IDS[a.symbol]).join(',');
   try {
     const res = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true&include_24hr_high_low=true`,
-      { signal: AbortSignal.timeout(8000) }
+      `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_market_cap=true`,
+      { signal: (() => { const c = new AbortController(); setTimeout(() => c.abort(), 8000); return c.signal; })() }
     );
     if (!res.ok) return {};
     const data = await res.json();
@@ -51,8 +51,8 @@ async function fetchLivePrices(assets: MarketAsset[]): Promise<Partial<Record<st
         result[a.symbol] = {
           price: data[id].usd,
           change24h: data[id].usd_24h_change || 0,
-          high24h: data[id].usd_24h_high || 0,
-          low24h: data[id].usd_24h_low || 0,
+          high24h: 0,
+          low24h: 0,
           vol: data[id].usd_24h_vol || 0,
           mcap: data[id].usd_market_cap || 0,
         };
