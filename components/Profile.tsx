@@ -117,15 +117,15 @@ export default function Profile({ currentUser, onLogout }: ProfileProps) {
       const img = new Image()
       img.onload = () => {
         const canvas = document.createElement('canvas')
-        const max = 300
-        let w = img.width, h = img.height
-        if (w > h) { h = Math.round(h * max / w); w = max }
-        else { w = Math.round(w * max / h); h = max }
-        canvas.width = w
-        canvas.height = h
+        // Crop to square then resize to 150x150 — keeps base64 small enough for DB
+        const size = Math.min(img.width, img.height)
+        const sx = (img.width - size) / 2
+        const sy = (img.height - size) / 2
+        canvas.width = 150
+        canvas.height = 150
         const ctx = canvas.getContext('2d')!
-        ctx.drawImage(img, 0, 0, w, h)
-        const resized = canvas.toDataURL('image/jpeg', 0.82)
+        ctx.drawImage(img, sx, sy, size, size, 0, 0, 150, 150)
+        const resized = canvas.toDataURL('image/jpeg', 0.75)
         setAvatarPreview(resized)
       }
       img.src = dataUrl
@@ -153,7 +153,7 @@ export default function Profile({ currentUser, onLogout }: ProfileProps) {
       console.warn('Profile save to Supabase failed:', err)
     }
 
-    // Always update localStorage
+    // Always update localStorage (use both keys for compatibility)
     const stored = JSON.parse(localStorage.getItem('sociotrade_user') || '{}')
     if (stored.id === currentUser.id) {
       stored.profile = { ...stored.profile, ...updates }

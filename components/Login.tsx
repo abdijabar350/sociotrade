@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { supabase } from '../utils/supabase'
 
 interface LoginProps {
   onLogin: (user: any) => void
@@ -8,13 +9,17 @@ export default function Login({ onLogin }: LoginProps) {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
 
+  // Sign in fields
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [fullName, setFullName] = useState('')
-  const [username, setUsername] = useState('')
+
+  // Sign up fields
   const [signupEmail, setSignupEmail] = useState('')
   const [signupPassword, setSignupPassword] = useState('')
+  const [fullName, setFullName] = useState('')
+  const [username, setUsername] = useState('')
 
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '14px 16px',
@@ -22,7 +27,7 @@ export default function Login({ onLogin }: LoginProps) {
     border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: '12px', color: '#fff',
     fontSize: '15px', outline: 'none',
-    boxSizing: 'border-box'
+    boxSizing: 'border-box', fontFamily: 'inherit'
   }
 
   const labelStyle: React.CSSProperties = {
@@ -34,36 +39,57 @@ export default function Login({ onLogin }: LoginProps) {
     e.preventDefault()
     setLoading(true)
     setError('')
+    setSuccess('')
 
     try {
-      // Try Supabase first
-      const { supabase } = await import('../utils/supabase')
       const { data, error: authError } = await supabase.auth.signInWithPassword({ email, password })
 
-      if (authError) throw new Error(authError.message)
+      if (authError) {
+        // Give human-friendly errors
+        if (authError.message.includes('Invalid login')) {
+          throw new Error('Wrong email or password. Please try again.')
+        } else if (authError.message.includes('Email not confirmed')) {
+          throw new Error('Please check your email and click the confirmation link first.')
+        } else {
+          throw new Error(authError.message)
+        }
+      }
 
-      if (data.user) {
+      if (data.user && data.session) {
         let profile = null
         try {
           const { data: p } = await supabase.from('profiles').select('*').eq('id', data.user.id).single()
           profile = p
         } catch {}
-        onLogin({ ...data.user, profile, id: data.user.id })
+
+        if (!profile) {
+          const meta = data.user.user_metadata || {}
+          profile = {
+            id: data.user.id,
+            username: meta.username || email.split('@')[0],
+            full_name: meta.full_name || '',
+            avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${data.user.id}`,
+            bio: '', followers: 0, following: 0
+          }
+        }
+
+        const user = { ...data.user, profile, id: data.user.id }
+        onLogin(user)
         setLoading(false)
         return
       }
     } catch (err: any) {
-      // Fall back to localStorage auth
+      // Check localStorage fallback
+      const users: any[] = JSON.parse(localStorage.getItem('st_users') || '[]')
+      const found = users.find((u: any) => u.email === email && u.password === password)
+      if (found) {
+        onLogin(found)
+        setLoading(false)
+        return
+      }
+      setError(err.message || 'Sign in failed. Please try again.')
     }
 
-    // localStorage fallback
-    const users: any[] = JSON.parse(localStorage.getItem('st_users') || '[]')
-    const found = users.find((u: any) => u.email === email && u.password === password)
-    if (found) {
-      onLogin(found)
-    } else {
-      setError('Invalid email or password')
-    }
     setLoading(false)
   }
 
@@ -71,6 +97,7 @@ export default function Login({ onLogin }: LoginProps) {
     e.preventDefault()
     setLoading(true)
     setError('')
+    setSuccess('')
 
     if (!username.trim() || !fullName.trim()) {
       setError('Please fill in all fields')
@@ -78,29 +105,78 @@ export default function Login({ onLogin }: LoginProps) {
       return
     }
 
-    // Check username taken (localStorage)
-    const users: any[] = JSON.parse(localStorage.getItem('st_users') || '[]')
-    if (users.find((u: any) => u.profile?.username === username.toLowerCase().trim())) {
-      setError('Username already taken')
+    if (signupPassword.length < 6) {
+      setError('Password must be at least 6 characters')
+      setLoading(false)
+      return
+    }
+
+    const cleanUsername = username.toLowerCase().replace(/[^a-z0-9_]/g, '').trim()
+    if (!cleanUsername) {
+      setError('Username can only contain letters, numbers, and underscores')
       setLoading(false)
       return
     }
 
     try {
-      // Try Supabase first
-      const { supabase } = await import('../utils/supabase')
       const { data, error: authError } = await supabase.auth.signUp({
         email: signupEmail,
         password: signupPassword,
-        options: { data: { full_name: fullName, username: username.toLowerCase().trim() } }
+        options: {
+          data: { full_name: fullName, username: cleanUsername }
+        }
       })
 
-      if (authError) throw new Error(authError.message)
+      if (authError) {
+        if (authError.message.includes('already registered')) {
+          throw new Error('This email is already registered. Try signing in instead.')
+        }
+        throw new Error(authError.message)
+      }
 
       if (data.user) {
-        const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`
+        const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${cleanUsername}`
         const profile = {
           id: data.user.id,
+          username: cleanUsername,
+          full_name: fullName,
+          avatar_url: avatarUrl,
+          bio: '',
+          followers: 0,
+          following: 0
+        }
+
+        // Upsert profile (trigger should create it, but ensure it exists)
+        try {
+          await supabase.from('profiles').upsert(profile)
+        } catch {}
+
+        const user = { ...data.user, profile, id: data.user.id }
+
+        // Save locally too
+        const users: any[] = JSON.parse(localStorage.getItem('st_users') || '[]')
+        localStorage.setItem('st_users', JSON.stringify([...users, { ...user, password: signupPassword }]))
+
+        onLogin(user)
+        setLoading(false)
+        return
+      }
+    } catch (err: any) {
+      // localStorage fallback sign up
+      const users: any[] = JSON.parse(localStorage.getItem('st_users') || '[]')
+      if (users.find((u: any) => u.profile?.username === username.toLowerCase().trim())) {
+        setError('Username already taken')
+        setLoading(false)
+        return
+      }
+
+      const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`
+      const newUser = {
+        id: `local_${Date.now()}`,
+        email: signupEmail,
+        password: signupPassword,
+        profile: {
+          id: `local_${Date.now()}`,
           username: username.toLowerCase().trim(),
           full_name: fullName,
           avatar_url: avatarUrl,
@@ -108,40 +184,13 @@ export default function Login({ onLogin }: LoginProps) {
           followers: 0,
           following: 0
         }
-        try {
-          await supabase.from('profiles').upsert(profile)
-        } catch {}
-        const newUser = { ...data.user, profile, id: data.user.id }
-        // Also save locally
-        const updatedUsers = [...users, { ...newUser, password: signupPassword }]
-        localStorage.setItem('st_users', JSON.stringify(updatedUsers))
-        onLogin(newUser)
-        setLoading(false)
-        return
       }
-    } catch (err: any) {
-      // Fall back to localStorage
+      localStorage.setItem('st_users', JSON.stringify([...users, newUser]))
+      onLogin(newUser)
+      setLoading(false)
+      return
     }
 
-    // localStorage fallback — create account locally
-    const avatarUrl = `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`
-    const newUser = {
-      id: `local_${Date.now()}`,
-      email: signupEmail,
-      password: signupPassword,
-      profile: {
-        id: `local_${Date.now()}`,
-        username: username.toLowerCase().trim(),
-        full_name: fullName,
-        avatar_url: avatarUrl,
-        bio: '',
-        followers: 0,
-        following: 0
-      }
-    }
-    const updatedUsers = [...users, newUser]
-    localStorage.setItem('st_users', JSON.stringify(updatedUsers))
-    onLogin(newUser)
     setLoading(false)
   }
 
@@ -181,12 +230,12 @@ export default function Login({ onLogin }: LoginProps) {
           borderRadius: '12px', padding: '4px', marginBottom: '24px'
         }}>
           {(['signin', 'signup'] as const).map(m => (
-            <button key={m} onClick={() => { setMode(m); setError('') }} style={{
+            <button key={m} onClick={() => { setMode(m); setError(''); setSuccess('') }} style={{
               flex: 1, padding: '10px',
               background: mode === m ? 'linear-gradient(135deg, #667eea, #764ba2)' : 'transparent',
               border: 'none', borderRadius: '10px',
               color: '#fff', fontSize: '14px', fontWeight: '600',
-              cursor: 'pointer'
+              cursor: 'pointer', transition: 'all 0.2s'
             }}>
               {m === 'signin' ? 'Sign In' : 'Sign Up'}
             </button>
@@ -197,8 +246,16 @@ export default function Login({ onLogin }: LoginProps) {
           <div style={{
             background: 'rgba(255,59,48,0.15)', border: '1px solid rgba(255,59,48,0.3)',
             borderRadius: '10px', padding: '12px 16px',
-            color: '#ff3b30', fontSize: '13px', marginBottom: '16px'
+            color: '#ff3b30', fontSize: '13px', marginBottom: '16px', lineHeight: '1.5'
           }}>{error}</div>
+        )}
+
+        {success && (
+          <div style={{
+            background: 'rgba(52,199,89,0.15)', border: '1px solid rgba(52,199,89,0.3)',
+            borderRadius: '10px', padding: '12px 16px',
+            color: '#34c759', fontSize: '13px', marginBottom: '16px', lineHeight: '1.5'
+          }}>{success}</div>
         )}
 
         {mode === 'signin' ? (
@@ -222,14 +279,20 @@ export default function Login({ onLogin }: LoginProps) {
             }}>
               {loading ? '⏳ Signing in...' : 'Sign In →'}
             </button>
+            <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '12px', textAlign: 'center', marginTop: '14px' }}>
+              Don't have an account?{' '}
+              <span onClick={() => setMode('signup')} style={{ color: '#667eea', cursor: 'pointer', fontWeight: '600' }}>
+                Sign Up
+              </span>
+            </p>
           </form>
         ) : (
           <form onSubmit={handleSignUp}>
             {[
               { label: 'Full Name', value: fullName, set: setFullName, type: 'text', ph: 'John Doe' },
-              { label: 'Username', value: username, set: setUsername, type: 'text', ph: 'johndoe' },
+              { label: 'Username', value: username, set: setUsername, type: 'text', ph: 'johndoe (letters & numbers only)' },
               { label: 'Email', value: signupEmail, set: setSignupEmail, type: 'email', ph: 'your@email.com' },
-              { label: 'Password', value: signupPassword, set: setSignupPassword, type: 'password', ph: '8+ characters' },
+              { label: 'Password', value: signupPassword, set: setSignupPassword, type: 'password', ph: 'At least 6 characters' },
             ].map(f => (
               <div key={f.label} style={{ marginBottom: '14px' }}>
                 <label style={labelStyle}>{f.label}</label>

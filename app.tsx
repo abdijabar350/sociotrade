@@ -14,6 +14,28 @@ import UserProfile from './components/UserProfile'
 
 type Tab = 'feed' | 'explore' | 'post' | 'market' | 'messages' | 'profile' | 'notifications'
 
+async function buildUser(supabaseUser: any) {
+  let profile = null
+  try {
+    const { data } = await supabase.from('profiles').select('*').eq('id', supabaseUser.id).single()
+    profile = data
+  } catch {}
+  // Fallback profile from user metadata if DB profile not ready yet
+  if (!profile) {
+    const meta = supabaseUser.user_metadata || {}
+    profile = {
+      id: supabaseUser.id,
+      username: meta.username || supabaseUser.email?.split('@')[0] || 'user',
+      full_name: meta.full_name || '',
+      avatar_url: `https://api.dicebear.com/7.x/avataaars/svg?seed=${supabaseUser.id}`,
+      bio: '',
+      followers: 0,
+      following: 0,
+    }
+  }
+  return { ...supabaseUser, profile, id: supabaseUser.id }
+}
+
 function App() {
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -24,23 +46,47 @@ function App() {
   const [viewedUsername, setViewedUsername] = useState<string | null>(null)
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user) {
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single()
-        setCurrentUser({ ...session.user, profile })
-      }
-      setLoading(false)
-    })
+    // Restore session on mount
+    supabase.auth.getSession()
+      .then(async ({ data: { session } }) => {
+        if (session?.user) {
+          const user = await buildUser(session.user)
+          setCurrentUser(user)
+        } else {
+          // Try localStorage fallback
+          const stored = localStorage.getItem('sociotrade_user')
+          if (stored) {
+            try {
+              const u = JSON.parse(stored)
+              if (u?.id) setCurrentUser(u)
+            } catch {}
+          }
+        }
+        setLoading(false)
+      })
+      .catch(() => {
+        // Supabase unavailable — try localStorage
+        const stored = localStorage.getItem('sociotrade_user')
+        if (stored) {
+          try {
+            const u = JSON.parse(stored)
+            if (u?.id) setCurrentUser(u)
+          } catch {}
+        }
+        setLoading(false)
+      })
 
+    // Listen for auth changes (sign in, sign out, token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT') {
         setCurrentUser(null)
         setActiveTab('feed')
         setViewedUsername(null)
+        localStorage.removeItem('sociotrade_user')
+      } else if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && session?.user) {
+        const user = await buildUser(session.user)
+        setCurrentUser(user)
+        localStorage.setItem('sociotrade_user', JSON.stringify(user))
       }
     })
 
@@ -49,12 +95,14 @@ function App() {
 
   const handleLogin = (user: any) => {
     setCurrentUser(user)
+    localStorage.setItem('sociotrade_user', JSON.stringify(user))
     setActiveTab('feed')
   }
 
   const handleLogout = async () => {
-    await supabase.auth.signOut()
+    await supabase.auth.signOut().catch(() => {})
     setCurrentUser(null)
+    localStorage.removeItem('sociotrade_user')
   }
 
   const handleTabChange = (tab: Tab) => {
@@ -62,16 +110,16 @@ function App() {
       setShowCreate(true)
       return
     }
-    setViewedUsername(null) // clear viewed profile when switching tabs
+    setViewedUsername(null)
     setActiveTab(tab)
     if (tab === 'messages') setUnreadMessages(0)
     if (tab === 'notifications') setUnreadNotifications(0)
   }
 
   const handleUserClick = (username: string) => {
-    // Don't open own profile in viewer — go to profile tab instead
     const myUsername = currentUser?.profile?.username
     if (username === myUsername) {
+      setViewedUsername(null)
       setActiveTab('profile')
       return
     }
@@ -87,7 +135,9 @@ function App() {
         flexDirection: 'column', gap: '16px'
       }}>
         <div style={{ fontSize: '48px' }}>📈</div>
+        <div style={{ width: '40px', height: '40px', border: '3px solid rgba(102,126,234,0.3)', borderTop: '3px solid #667eea', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
         <p style={{ color: 'rgba(255,255,255,0.6)', fontSize: '16px' }}>Loading SocioTrade...</p>
+        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
       </div>
     )
   }
@@ -96,7 +146,7 @@ function App() {
     return <Login onLogin={handleLogin} />
   }
 
-  // Show another user's profile (overlay on top of current tab)
+  // Show another user's profile
   if (viewedUsername) {
     return (
       <div style={{ maxWidth: '430px', margin: '0 auto', minHeight: '100vh', background: '#0f0f1a', position: 'relative' }}>
