@@ -53,8 +53,9 @@ function PostCard({ post, onLike }: { post: any; onLike: (id: string) => void })
     onLike(post.id)
   }
 
-  const isSignal = post.post_type === 'signal'
-  const isReel = post.post_type === 'reel'
+  const postType = post.type || post.post_type || 'post'
+  const isSignal = postType === 'signal'
+  const isReel = postType === 'reel'
 
   return (
     <div style={{
@@ -77,13 +78,13 @@ function PostCard({ post, onLike }: { post: any; onLike: (id: string) => void })
         {isSignal && (
           <span style={{
             padding: '4px 10px',
-            background: post.signal_direction === 'LONG' ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)',
-            border: `1px solid ${post.signal_direction === 'LONG' ? '#22c55e' : '#ef4444'}`,
+            background: signalDirection === 'LONG' ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)',
+            border: `1px solid ${signalDirection === 'LONG' ? '#22c55e' : '#ef4444'}`,
             borderRadius: '20px',
-            color: post.signal_direction === 'LONG' ? '#22c55e' : '#ef4444',
+            color: signalDirection === 'LONG' ? '#22c55e' : '#ef4444',
             fontSize: '11px', fontWeight: '700'
           }}>
-            {post.signal_direction === 'LONG' ? '▲' : '▼'} {post.signal_direction}
+            {signalDirection === 'LONG' ? '▲' : '▼'} {signalDirection}
           </span>
         )}
       </div>
@@ -93,27 +94,27 @@ function PostCard({ post, onLike }: { post: any; onLike: (id: string) => void })
         <div style={{ margin: '0 16px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: '12px', overflow: 'hidden' }}>
           <div style={{
             padding: '12px 16px',
-            background: post.signal_direction === 'LONG' ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+            background: signalDirection === 'LONG' ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
             borderBottom: '1px solid rgba(255,255,255,0.06)'
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {post.signal_direction === 'LONG'
+              {signalDirection === 'LONG'
                 ? <TrendingUp size={20} color="#22c55e" />
                 : <TrendingDown size={20} color="#ef4444" />}
-              <span style={{ color: '#fff', fontSize: '20px', fontWeight: '800' }}>{post.ticker}</span>
-              {post.confidence && (
+              <span style={{ color: '#fff', fontSize: '20px', fontWeight: '800' }}>{ticker}</span>
+              {confidence && (
                 <span style={{ marginLeft: 'auto', color: '#f59e0b', fontSize: '12px', fontWeight: '600' }}>
-                  {post.confidence}% confidence
+                  {confidence}% confidence
                 </span>
               )}
             </div>
           </div>
-          {(post.entry_price || post.target_price || post.stop_loss) && (
+          {(entryPrice || targetPrice || stopLoss) && (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', padding: '12px 16px', gap: '8px' }}>
               {[
-                { label: 'Entry', val: post.entry_price, color: '#fff' },
-                { label: 'Target', val: post.target_price, color: '#22c55e' },
-                { label: 'Stop', val: post.stop_loss, color: '#ef4444' },
+                { label: 'Entry', val: entryPrice, color: '#fff' },
+                { label: 'Target', val: targetPrice, color: '#22c55e' },
+                { label: 'Stop', val: stopLoss, color: '#ef4444' },
               ].map(f => f.val ? (
                 <div key={f.label} style={{ textAlign: 'center' }}>
                   <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '10px', fontWeight: '600', marginBottom: '3px' }}>{f.label}</div>

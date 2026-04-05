@@ -72,19 +72,29 @@ export default function CreatePost({ currentUser, onClose, onPost }: CreatePostP
       id: postId,
       user_id: userId,
       username,
-      full_name: fullName,
       avatar_url: avatarUrl,
       content: content.trim(),
       image_url: imageUrl.trim() || null,
       video_url: videoUrl.trim() || null,
-      post_type: postType,
+      type: postType,
       likes: 0,
       comments: 0,
+      // local-only fields (not in DB)
+      full_name: fullName,
       liked: false,
       created_at: now,
     }
 
     if (postType === 'signal') {
+      postData.signal_data = {
+        ticker: ticker.toUpperCase().trim(),
+        direction,
+        entry_price: entry,
+        target_price: target,
+        stop_loss: stopLoss,
+        confidence,
+      }
+      // local-only convenience fields
       postData.ticker = ticker.toUpperCase().trim()
       postData.signal_direction = direction
       postData.entry_price = entry
@@ -109,19 +119,43 @@ export default function CreatePost({ currentUser, onClose, onPost }: CreatePostP
       savePost(postData)
     }
 
-    // Also try to save to Supabase in background
+    // Also try to save to Supabase in background (only valid DB columns)
     try {
       const { supabase } = await import('../utils/supabase')
       if (postType === 'story') {
         await supabase.from('stories').insert({
-          user_id: userId, username, full_name: fullName,
-          avatar_url: avatarUrl, image_url: imageUrl.trim() || null,
-          content: content.trim()
+          user_id: userId,
+          username,
+          avatar_url: avatarUrl,
+          image_url: imageUrl.trim() || null,
         })
       } else {
-        await supabase.from('posts').insert(postData)
+        const dbPost: any = {
+          id: postId,
+          user_id: userId,
+          username,
+          avatar_url: avatarUrl,
+          content: content.trim() || null,
+          image_url: imageUrl.trim() || null,
+          video_url: videoUrl.trim() || null,
+          type: postType,
+          likes: 0,
+          comments: 0,
+        }
+        if (postType === 'signal') {
+          dbPost.signal_data = {
+            ticker: ticker.toUpperCase().trim(),
+            direction,
+            entry_price: entry,
+            target_price: target,
+            stop_loss: stopLoss,
+            confidence,
+          }
+        }
+        const { error: insertError } = await supabase.from('posts').insert(dbPost)
+        if (insertError) console.error('Supabase insert error:', insertError.message)
       }
-    } catch {}
+    } catch (e) { console.error('Supabase error:', e) }
 
     setLoading(false)
     onPost()
