@@ -10,6 +10,7 @@ import Market from './components/Market'
 import Messages from './components/Messages'
 import Profile from './components/Profile'
 import Notifications from './components/Notifications'
+import UserProfile from './components/UserProfile'
 
 type Tab = 'feed' | 'explore' | 'post' | 'market' | 'messages' | 'profile' | 'notifications'
 
@@ -20,9 +21,9 @@ function App() {
   const [showCreate, setShowCreate] = useState(false)
   const [unreadMessages, setUnreadMessages] = useState(2)
   const [unreadNotifications, setUnreadNotifications] = useState(3)
+  const [viewedUsername, setViewedUsername] = useState<string | null>(null)
 
   useEffect(() => {
-    // Check existing session
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
         const { data: profile } = await supabase
@@ -35,11 +36,11 @@ function App() {
       setLoading(false)
     })
 
-    // Listen to auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT') {
         setCurrentUser(null)
         setActiveTab('feed')
+        setViewedUsername(null)
       }
     })
 
@@ -61,9 +62,20 @@ function App() {
       setShowCreate(true)
       return
     }
+    setViewedUsername(null) // clear viewed profile when switching tabs
     setActiveTab(tab)
     if (tab === 'messages') setUnreadMessages(0)
     if (tab === 'notifications') setUnreadNotifications(0)
+  }
+
+  const handleUserClick = (username: string) => {
+    // Don't open own profile in viewer — go to profile tab instead
+    const myUsername = currentUser?.profile?.username
+    if (username === myUsername) {
+      setActiveTab('profile')
+      return
+    }
+    setViewedUsername(username)
   }
 
   if (loading) {
@@ -84,11 +96,24 @@ function App() {
     return <Login onLogin={handleLogin} />
   }
 
+  // Show another user's profile (overlay on top of current tab)
+  if (viewedUsername) {
+    return (
+      <div style={{ maxWidth: '430px', margin: '0 auto', minHeight: '100vh', background: '#0f0f1a', position: 'relative' }}>
+        <UserProfile
+          username={viewedUsername}
+          currentUser={currentUser}
+          onBack={() => setViewedUsername(null)}
+        />
+      </div>
+    )
+  }
+
   return (
     <div style={{ maxWidth: '430px', margin: '0 auto', minHeight: '100vh', background: '#0f0f1a', position: 'relative', paddingBottom: '80px' }}>
-      {activeTab === 'feed' && <Feed currentUser={currentUser} />}
-      {activeTab === 'explore' && <Explore />}
-      {activeTab === 'market' && <Market />}
+      {activeTab === 'feed' && <Feed currentUser={currentUser} onUserClick={handleUserClick} />}
+      {activeTab === 'explore' && <Explore onUserClick={handleUserClick} />}
+      {activeTab === 'market' && <Market currentUser={currentUser} />}
       {activeTab === 'messages' && <Messages currentUser={currentUser} />}
       {activeTab === 'profile' && <Profile currentUser={currentUser} onLogout={handleLogout} />}
       {activeTab === 'notifications' && <Notifications />}

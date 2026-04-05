@@ -4,6 +4,7 @@ import Stories from './Stories'
 
 interface FeedProps {
   currentUser: any
+  onUserClick?: (username: string) => void
 }
 
 function timeAgo(dateStr: string) {
@@ -41,7 +42,7 @@ function VideoPlayer({ url }: { url: string }) {
   )
 }
 
-function PostCard({ post, onLike }: { post: any; onLike: (id: string) => void }) {
+function PostCard({ post, onLike, onUserClick }: { post: any; onLike: (id: string) => void; onUserClick?: (username: string) => void }) {
   const [liked, setLiked] = useState(post.liked || false)
   const [likeCount, setLikeCount] = useState(post.likes || 0)
   const [saved, setSaved] = useState(false)
@@ -57,6 +58,19 @@ function PostCard({ post, onLike }: { post: any; onLike: (id: string) => void })
   const isSignal = postType === 'signal'
   const isReel = postType === 'reel'
 
+  // Extract signal data — supports both flat fields (localStorage) and signal_data JSONB (Supabase)
+  const sd = post.signal_data || {}
+  const signalDirection = sd.signal_direction || post.signal_direction || 'LONG'
+  const ticker = sd.ticker || post.ticker || ''
+  const confidence = sd.confidence || post.confidence || ''
+  const entryPrice = sd.entry_price || post.entry_price || ''
+  const targetPrice = sd.target_price || post.target_price || ''
+  const stopLoss = sd.stop_loss || post.stop_loss || ''
+
+  const handleUserClick = () => {
+    if (post.username && onUserClick) onUserClick(post.username)
+  }
+
   return (
     <div style={{
       background: 'rgba(255,255,255,0.04)',
@@ -65,10 +79,14 @@ function PostCard({ post, onLike }: { post: any; onLike: (id: string) => void })
     }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', padding: '14px 16px 10px', gap: '10px' }}>
-        <img src={post.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.username}`}
-          alt="" style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover',
-            border: '2px solid rgba(102,126,234,0.4)' }} />
-        <div style={{ flex: 1 }}>
+        <img
+          src={post.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.username}`}
+          alt=""
+          onClick={handleUserClick}
+          style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover',
+            border: '2px solid rgba(102,126,234,0.4)', cursor: onUserClick ? 'pointer' : 'default' }}
+        />
+        <div style={{ flex: 1, cursor: onUserClick ? 'pointer' : 'default' }} onClick={handleUserClick}>
           <div style={{ color: '#fff', fontWeight: '600', fontSize: '14px' }}>{post.full_name || post.username}</div>
           <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '12px' }}>
             @{post.username} · {timeAgo(post.created_at)}
@@ -168,15 +186,13 @@ function PostCard({ post, onLike }: { post: any; onLike: (id: string) => void })
   )
 }
 
-export default function Feed({ currentUser }: FeedProps) {
+export default function Feed({ currentUser, onUserClick }: FeedProps) {
   const [posts, setPosts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   const loadPosts = async () => {
-    // Load from localStorage first
     const local: any[] = JSON.parse(localStorage.getItem('st_posts') || '[]')
 
-    // Try Supabase
     try {
       const { supabase } = await import('../utils/supabase')
       const { data, error } = await supabase
@@ -186,7 +202,6 @@ export default function Feed({ currentUser }: FeedProps) {
         .limit(50)
 
       if (!error && data && data.length > 0) {
-        // Merge: show Supabase posts + any local posts not in Supabase
         const supabaseIds = new Set(data.map((p: any) => p.id))
         const localOnly = local.filter((p: any) => !supabaseIds.has(p.id))
         const merged = [...localOnly, ...data].sort((a, b) =>
@@ -198,20 +213,17 @@ export default function Feed({ currentUser }: FeedProps) {
       }
     } catch {}
 
-    // Fallback to localStorage only
     setPosts(local)
     setLoading(false)
   }
 
   useEffect(() => {
     loadPosts()
-    // Refresh every 30 seconds
     const interval = setInterval(loadPosts, 30000)
     return () => clearInterval(interval)
   }, [])
 
   const handleLike = (postId: string) => {
-    // Update localStorage
     const posts: any[] = JSON.parse(localStorage.getItem('st_posts') || '[]')
     const updated = posts.map((p: any) => {
       if (p.id === postId) {
@@ -267,7 +279,7 @@ export default function Feed({ currentUser }: FeedProps) {
           </div>
         ) : (
           posts.map(post => (
-            <PostCard key={post.id} post={post} onLike={handleLike} />
+            <PostCard key={post.id} post={post} onLike={handleLike} onUserClick={onUserClick} />
           ))
         )}
       </div>
